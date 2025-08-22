@@ -1,5 +1,6 @@
 import streamlit as st
 from dotenv import load_dotenv
+import os
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings 
@@ -9,7 +10,13 @@ from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from template import css, bot_template, user_template
 
-load_dotenv()
+
+
+GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY is missing.")
+
 
 def get_pdf_text(pdf_docs):
     text=""
@@ -30,7 +37,7 @@ def get_text_chunks(raw_text):
     return chunks
 
 def get_vectorstore(chunks):
-    embeddings=GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings=GoogleGenerativeAIEmbeddings(model="models/embedding-001",google_api_key=GOOGLE_API_KEY)
     vectorstore=FAISS.from_texts(texts=chunks, embedding=embeddings)
     return vectorstore
 
@@ -38,7 +45,7 @@ def get_vectorstore(chunks):
 
 def get_conversation_chain(vectorstore):
     
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0,google_api_key=GOOGLE_API_KEY)
 
 
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
