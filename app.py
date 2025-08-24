@@ -12,14 +12,14 @@ from template import css, bot_template, user_template
 
 
 
+
 GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY is missing.")
 
-
 def get_pdf_text(pdf_docs):
-    text=""
+    text = ""
     for pdf in pdf_docs:
         pdf_reader = PdfReader(pdf)
         for page in pdf_reader.pages:
@@ -32,68 +32,77 @@ def get_text_chunks(raw_text):
         chunk_size=1000,
         chunk_overlap=200
     )
-
-    chunks=text_splitter.split_text(raw_text)
-    return chunks
+    return text_splitter.split_text(raw_text)
 
 def get_vectorstore(chunks):
-    embeddings=GoogleGenerativeAIEmbeddings(model="models/embedding-001",google_api_key=GOOGLE_API_KEY)
-    vectorstore=FAISS.from_texts(texts=chunks, embedding=embeddings)
-    return vectorstore
-
-
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    return FAISS.from_texts(texts=chunks, embedding=embeddings)
 
 def get_conversation_chain(vectorstore):
-    
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0,google_api_key=GOOGLE_API_KEY)
-
-
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
-
-    conversation_chain = ConversationalRetrievalChain.from_llm(
+    return ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=vectorstore.as_retriever(),
         memory=memory
     )
 
-    return conversation_chain
-
 def handle_userinput(user_question):
-    response = st.session_state.conversation({'question': user_question})
-    st.session_state.chat_history = response['chat_history']
+    if not st.session_state.conversation:
+        st.warning("Please upload PDFs and click Proceed before asking questions.")
+        return
 
-    for i, message in enumerate(st.session_state.chat_history):
-        if i % 2 == 0:
-            st.write(user_template.replace(
-                "{{MSG}}", message.content), unsafe_allow_html=True)
-        else:
-            st.write(bot_template.replace(
-                "{{MSG}}", message.content), unsafe_allow_html=True)
+    with st.spinner("Thinking..."):
+        response = st.session_state.conversation({'question': user_question})
+        st.session_state.chat_history = response['chat_history']
+
+    # st.session_state.query = ""  
+
+def display_chat_history():
+    """Always show chat history if available."""
+    if st.session_state.chat_history:
+        for i, message in enumerate(reversed(st.session_state.chat_history)):
+            original_index = len(st.session_state.chat_history) - 1 - i
+            if original_index % 2 == 0:
+                st.write(user_template.replace("{{MSG}}", message.content), unsafe_allow_html=True)
+            else:
+                st.write(bot_template.replace("{{MSG}}", message.content), unsafe_allow_html=True)
 
 st.write(css, unsafe_allow_html=True)
+
 
 if "conversation" not in st.session_state:
     st.session_state.conversation = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = None
+if "query" not in st.session_state:
+    st.session_state.query = ""
 
 st.header("ChatPDF")
-query = st.text_input("Ask a question ... (Upload the pdf(s) and click proceed before asking a question)")
+query = st.text_input("Ask a question ...", value=st.session_state.query, key="query_input")
 
-if query:
+# Handle query only if non-empty
+if query.strip():
     handle_userinput(query)
+
+
+display_chat_history()
 
 with st.sidebar:
     st.subheader("Your documents")
-    pdf_docs = st.file_uploader("Upload your PDF's here and click proceed",accept_multiple_files=True)
-    if st.button("Proceed"):
-        with st.spinner("Processing"):
-            
-            raw_text = get_pdf_text(pdf_docs)
-            
-            text_chunks= get_text_chunks(raw_text)
-            
-            vectorstore = get_vectorstore(text_chunks) 
+    pdf_docs = st.file_uploader("Upload your PDF(s) here", accept_multiple_files=True)
 
-            st.session_state.conversation = get_conversation_chain(vectorstore)
+
+
+    if st.button("Proceed"):
+        if not pdf_docs:
+            st.warning("Please upload at least one PDF before proceeding.")
+        else:
+            with st.spinner("Processing PDFs..."):
+                raw_text = get_pdf_text(pdf_docs)
+                text_chunks = get_text_chunks(raw_text)
+                vectorstore = get_vectorstore(text_chunks)
+                st.session_state.conversation = get_conversation_chain(vectorstore)
+
+            st.info("Processing complete! You can now ask a question.")
+            
